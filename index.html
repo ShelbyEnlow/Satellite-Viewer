@@ -84,6 +84,12 @@
       max-height: none;
       overflow: hidden;
     }
+    .list-panel.minimized {
+      width: 100%;
+      padding: 10px;
+      max-height: none;
+      overflow: hidden;
+    }
     .sat-panel.minimized {
       width: 220px;
       padding: 10px;
@@ -91,6 +97,7 @@
       overflow: hidden;
     }
     .panel.minimized .panel-body,
+    .list-panel.minimized .panel-body,
     .sat-panel.minimized .panel-body {
       display: none;
     }
@@ -280,6 +287,7 @@
   <section class="list-panel">
     <div class="panel-header">
       <h2>Satellites Above Location</h2>
+      <button id="listPanelToggle" class="panel-toggle">Minimize</button>
     </div>
     <div class="panel-body">
       <div class="list-wrap tall">
@@ -331,8 +339,10 @@
   const renderLimitLabel = document.getElementById('renderLimitLabel');
   const reloadSourcesBtn = document.getElementById('reloadSourcesBtn');
   const leftPanelToggle = document.getElementById('leftPanelToggle');
+  const listPanelToggle = document.getElementById('listPanelToggle');
   const rightPanelToggle = document.getElementById('rightPanelToggle');
   const leftPanel = document.querySelector('.panel');
+  const listPanel = document.querySelector('.list-panel');
   const rightPanel = document.querySelector('.sat-panel');
   const scaleInfo = document.getElementById('scaleInfo');
 
@@ -746,7 +756,7 @@
     let selectedSatellite = null;
     let selectedMesh = null;
     let listSelectedSatellite = null;
-    let overheadVisibleSatellites = [];
+    let overheadVisibleEntries = [];
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let orbitLine = null;
@@ -1015,6 +1025,37 @@
       return d.toUTCString();
     }
 
+    function inferSatelliteProfile(sat) {
+      const name = String(sat.name || '').toUpperCase();
+      let mission = 'Unknown / mixed mission';
+      let equipment = 'Likely bus avionics + radio transceiver';
+
+      if (name.includes('STARLINK')) {
+        mission = 'Broadband internet communications';
+        equipment = 'Phased-array antennas, optical inter-satellite links (many units), Ku/Ka-band payload';
+      } else if (name.includes('ISS') || name.includes('ZARYA')) {
+        mission = 'Crewed research station';
+        equipment = 'Life support systems, science racks, communications arrays, docking systems';
+      } else if (name.includes('NOAA') || name.includes('METEOR') || name.includes('WEATHER') || name.includes('GOES')) {
+        mission = 'Weather and Earth observation';
+        equipment = 'Visible/IR imagers, microwave sounders, meteorological radiometers';
+      } else if (name.includes('GPS') || name.includes('GALILEO') || name.includes('GLONASS') || name.includes('BEIDOU')) {
+        mission = 'Navigation / timing';
+        equipment = 'Atomic clocks, navigation signal transmitters, timing payloads';
+      } else if (name.includes('SENTINEL') || name.includes('LANDSAT') || name.includes('TERRA') || name.includes('AQUA')) {
+        mission = 'Earth observation / remote sensing';
+        equipment = 'Multispectral imagers, radar/scatterometer or atmospheric sensors';
+      } else if (name.includes('COSMOS') || name.includes('YAOGAN') || name.includes('NROL') || name.includes('USA ')) {
+        mission = 'Government / defense mission (likely)';
+        equipment = 'Classified payload (likely imaging, SIGINT, or relay systems)';
+      } else if (name.includes('HUBBLE') || name.includes('JWST') || name.includes('XMM') || name.includes('FERMI')) {
+        mission = 'Space science / astronomy';
+        equipment = 'Telescope instruments, star trackers, high-gain comms';
+      }
+
+      return { mission, equipment };
+    }
+
     function updateSelectedInfo() {
       if (!selectedSatellite || !selectedSatellite.lastGeo) {
         satInfoEl.textContent = 'Click a satellite to see details.';
@@ -1035,6 +1076,7 @@
       const revPerDay = Number.isFinite(satrec.no) ? (satrec.no * 1440 / (Math.PI * 2)) : null;
       const periodMin = revPerDay ? (1440 / revPerDay) : null;
       const footprintKm = Math.sqrt(Math.max(0, ((EARTH_RADIUS_KM + altKm) ** 2) - (EARTH_RADIUS_KM ** 2)));
+      const profile = inferSatelliteProfile(selectedSatellite);
       let observerText = 'Observer look angles: n/a (enter an address)';
       if (selectedObserver) {
         const now = new Date();
@@ -1068,6 +1110,8 @@
         `Mean motion: ${revPerDay ? `${revPerDay.toFixed(5)} rev/day` : 'n/a'}<br/>` +
         `Orbit period: ${periodMin ? `${periodMin.toFixed(1)} min` : 'n/a'}<br/>` +
         `Epoch (UTC): ${julianToDateString(satrec.jdsatepoch)}<br/>` +
+        `Likely mission: ${profile.mission}<br/>` +
+        `Likely equipment: ${profile.equipment}<br/>` +
         `${observerText}`;
     }
 
@@ -1081,7 +1125,14 @@
     }
 
     function startFollowingSatellite(sat) {
-      if (!sat || !sat.mesh) return;
+      if (!sat) return;
+      if (!sat.mesh) {
+        promoteSatelliteToDetailed(sat);
+      }
+      if (sat.mesh && sat.lastGeo) {
+        const p = geodeticToScene(sat.lastGeo.latitude, sat.lastGeo.longitude, sat.lastGeo.height);
+        sat.mesh.position.copy(p);
+      }
       followedSatellite = sat;
       controls.target.copy(sat.mesh.position);
       const offset = camera.position.clone().sub(sat.mesh.position);
@@ -1095,7 +1146,9 @@
 
     function stopFollowingSatellite() {
       followedSatellite = null;
+      listSelectedSatellite = null;
       controls.target.set(0, 0, 0);
+      updateSelectedInfo();
       setStatus('Stopped following satellite.', 'ok');
     }
 
@@ -1168,7 +1221,7 @@
 
     function updateOverheadList(now) {
       satListEl.innerHTML = '';
-      overheadVisibleSatellites = [];
+      overheadVisibleEntries = [];
       if (!selectedObserver) return;
 
       const observerGd = {
@@ -1178,14 +1231,23 @@
       };
       const gmst = satellite.gstime(now);
       const visible = [];
+      const obsLat = satellite.degreesToRadians(selectedObserver.lat);
+      const obsLon = satellite.degreesToRadians(selectedObserver.lon);
 
       satellites.forEach((sat) => {
         const pv = satellite.propagate(sat.satrec, now);
         if (!pv.position) return;
+        const geodetic = satellite.eciToGeodetic(pv.position, gmst);
         const ecf = satellite.eciToEcf(pv.position, gmst);
         const look = satellite.ecfToLookAngles(observerGd, ecf);
         const elevationDeg = satellite.radiansToDegrees(look.elevation);
-        if (elevationDeg > 0) visible.push({ sat, elevationDeg });
+        const heightKm = Math.max(0, geodetic.height || 0);
+        const centralDeg = angularDistanceDeg(obsLat, obsLon, geodetic.latitude, geodetic.longitude);
+        const maxVisibleDeg = satellite.radiansToDegrees(Math.acos(EARTH_RADIUS_KM / (EARTH_RADIUS_KM + heightKm)));
+        // Require both local look-angle visibility and Earth-occlusion geometry validity.
+        if (elevationDeg > 0 && centralDeg <= (maxVisibleDeg + 0.5)) {
+          visible.push({ sat, elevationDeg, centralDeg });
+        }
       });
 
       visible.sort((a, b) => b.elevationDeg - a.elevationDeg);
@@ -1197,7 +1259,7 @@
       }
 
       const topVisible = visible.slice(0, 30);
-      overheadVisibleSatellites = topVisible.map((item) => item.sat);
+      overheadVisibleEntries = topVisible;
       topVisible.forEach((item) => {
         const li = document.createElement('li');
         const btn = document.createElement('button');
@@ -1229,8 +1291,8 @@
       clearLocationLinks();
       if (!selectedObserver || !marker.visible) return;
 
-      const satsForLines = overheadVisibleSatellites.length
-        ? overheadVisibleSatellites
+      const satsForLines = overheadVisibleEntries.length
+        ? overheadVisibleEntries.map((entry) => entry.sat)
         : satellites.filter((sat) => sat.lastGeo).slice(0, 40);
 
       for (const sat of satsForLines) {
@@ -1328,6 +1390,7 @@
       setStatus('Playback speed set to 1.00 s/s (real-time simulation).', 'ok');
     });
     leftPanelToggle.addEventListener('click', () => togglePanel(leftPanel, leftPanelToggle));
+    listPanelToggle.addEventListener('click', () => togglePanel(listPanel, listPanelToggle));
     rightPanelToggle.addEventListener('click', () => togglePanel(rightPanel, rightPanelToggle));
     nearRangeSlider.addEventListener('input', () => {
       nearRangeDeg = Number(nearRangeSlider.value);
@@ -1544,8 +1607,22 @@
         buildOrbitLineForSelected(now);
         lastOrbitUpdateMs = nowMs;
       }
-      if (followedSatellite && followedSatellite.mesh && followedSatellite.mesh.visible) {
-        controls.target.copy(followedSatellite.mesh.position);
+      if (followedSatellite) {
+        let followPos = null;
+        if (followedSatellite.mesh) {
+          followPos = followedSatellite.mesh.position;
+        } else if (followedSatellite.lastGeo) {
+          followPos = geodeticToScene(
+            followedSatellite.lastGeo.latitude,
+            followedSatellite.lastGeo.longitude,
+            followedSatellite.lastGeo.height
+          );
+        }
+        if (followPos) {
+          controls.target.copy(followPos);
+        } else {
+          controls.target.set(0, 0, 0);
+        }
       } else {
         controls.target.set(0, 0, 0);
       }
