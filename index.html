@@ -1,0 +1,1567 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Satellite Viewer</title>
+  <style>
+    :root {
+      --bg: #08111f;
+      --panel: rgba(6, 14, 28, 0.9);
+      --panel-border: rgba(106, 154, 214, 0.35);
+      --text: #e8f1ff;
+      --muted: #9eb3ce;
+      --danger: #ff7272;
+      --ok: #6ef3ae;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background:
+        radial-gradient(circle at 20% 20%, #163560 0, transparent 40%),
+        radial-gradient(circle at 80% 10%, #1a2f53 0, transparent 35%),
+        radial-gradient(circle at 50% 80%, #102744 0, transparent 35%),
+        var(--bg);
+      overflow: hidden;
+    }
+    #app { position: relative; width: 100vw; height: 100vh; }
+    #scene { width: 100%; height: 100%; display: block; }
+    .left-stack {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      width: min(380px, calc(100vw - 32px));
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+    }
+    .panel {
+      position: relative;
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 14px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+      z-index: 1;
+    }
+    .list-panel {
+      position: relative;
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 12px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+      z-index: 1;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .panel-toggle {
+      padding: 6px 8px;
+      font-size: 0.75rem;
+      line-height: 1;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #e8f1ff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .panel-body { display: block; }
+    .panel.minimized {
+      width: 100%;
+      padding: 10px;
+      max-height: none;
+      overflow: hidden;
+    }
+    .sat-panel.minimized {
+      width: 220px;
+      padding: 10px;
+      max-height: none;
+      overflow: hidden;
+    }
+    .panel.minimized .panel-body,
+    .sat-panel.minimized .panel-body {
+      display: none;
+    }
+    h1 { font-size: 1.05rem; margin: 0 0 8px; font-weight: 650; letter-spacing: 0.3px; }
+    h1, h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meta { margin: 0 0 12px; color: var(--muted); font-size: 0.86rem; line-height: 1.4; }
+    .row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .row.stack { flex-direction: column; align-items: stretch; }
+    input, button { border-radius: 9px; border: 1px solid transparent; font-size: 0.9rem; padding: 9px 10px; }
+    input { flex: 1; background: rgba(255,255,255,0.08); color: var(--text); border-color: rgba(255,255,255,0.13); outline: none; }
+    input::placeholder { color: #a8bedc; }
+    button { cursor: pointer; background: linear-gradient(135deg,#2f7bff,#4ec1ff); color: #021325; font-weight: 700; }
+    .status { font-size: 0.82rem; margin: 0 0 10px; color: var(--muted); min-height: 1.1em; }
+    .status.error { color: var(--danger); }
+    .status.ok { color: var(--ok); }
+    .control-label {
+      font-size: 0.78rem;
+      color: #b6cae3;
+      margin: 0;
+    }
+    .source-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+      margin: 4px 0 8px;
+      font-size: 0.78rem;
+      color: #d7e7fb;
+    }
+    .source-grid label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .source-grid input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: #4ec1ff;
+    }
+    input[type="range"] {
+      width: 100%;
+      padding: 0;
+      accent-color: #4ec1ff;
+      background: transparent;
+    }
+    .list-wrap { max-height: min(42vh, 320px); overflow: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 8px; background: rgba(0,0,0,0.2); }
+    .list-wrap.tall { max-height: min(52vh, 420px); }
+    .list-title { font-size: 0.82rem; color: var(--muted); margin: 0 0 6px; }
+    #satList { margin: 0; padding-left: 18px; font-size: 0.86rem; line-height: 1.45; }
+    #satList li { margin-bottom: 3px; color: #dbebff; }
+    .sat-list-btn {
+      width: 100%;
+      text-align: left;
+      font-size: 0.84rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.08);
+      color: #e7f2ff;
+      padding: 6px 8px;
+    }
+    .help { margin-top: 9px; font-size: 0.77rem; color: #9fb4cf; line-height: 1.35; }
+    .scale-box {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 9px;
+      background: rgba(0,0,0,0.18);
+      font-size: 0.78rem;
+      color: #d6e8ff;
+      line-height: 1.35;
+    }
+    .info-box {
+      margin-top: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.2);
+      font-size: 0.82rem;
+      line-height: 1.4;
+      color: #dcecff;
+    }
+    .info-box strong { color: #ffffff; }
+    .sat-panel {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: min(360px, calc(100vw - 32px));
+      max-height: min(80vh, 700px);
+      overflow: auto;
+      background: rgba(6, 14, 28, 0.92);
+      border: 1px solid rgba(106, 154, 214, 0.35);
+      border-radius: 14px;
+      padding: 12px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+      z-index: 10;
+    }
+    .sat-panel h2 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 650;
+      letter-spacing: 0.2px;
+    }
+    .sat-panel .button-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .sat-panel .button-row button {
+      flex: 1;
+    }
+    #satInfo {
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: #dcecff;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    #satInfo strong { color: #ffffff; }
+    @media (max-width: 640px) {
+      .left-stack { left: 10px; right: 10px; width: auto; top: 10px; }
+      .sat-panel {
+        left: 10px;
+        right: 10px;
+        top: auto;
+        bottom: 10px;
+        width: auto;
+        max-height: 38vh;
+      }
+      .row { flex-direction: column; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+  <div class="left-stack">
+  <section class="panel">
+    <div class="panel-header">
+      <h1>Earth Satellite Simulator</h1>
+      <button id="leftPanelToggle" class="panel-toggle">Minimize</button>
+    </div>
+    <div class="panel-body">
+    <p class="meta">3D globe with live orbital propagation from TLE data.</p>
+    <div class="row">
+      <input id="addressInput" type="text" placeholder="Enter address or city" />
+      <button id="findBtn">Find Overhead</button>
+    </div>
+    <div class="row stack">
+      <div class="row">
+        <button id="playPauseBtn">Play</button>
+        <button id="liveNowBtn">Live Now</button>
+      </div>
+      <p id="simTimeLabel" class="control-label">Simulation time: paused at current time</p>
+      <input id="timeScrubber" type="range" min="-360" max="360" step="1" value="0" />
+      <p id="timeOffsetLabel" class="control-label">Time offset: 0 min (auto-paused while scrubbing)</p>
+      <div class="row">
+        <input id="speedSlider" type="range" min="0.0166667" max="20" step="0.0166667" value="2" />
+        <button id="realtimeSpeedBtn">Real Time Playback</button>
+      </div>
+      <p id="speedLabel" class="control-label">Playback speed: 2.00 min/s</p>
+      <input id="nearRangeSlider" type="range" min="5" max="60" step="1" value="20" />
+      <p id="nearRangeLabel" class="control-label">Nearest-link range: 20 deg</p>
+      <p class="control-label">Satellite sources</p>
+      <div class="source-grid">
+        <label><input id="srcSatnogs" type="checkbox" checked />SatNOGS</label>
+        <label><input id="srcCelestrakActive" type="checkbox" checked />CelesTrak Active</label>
+        <label><input id="srcCelestrakStarlink" type="checkbox" checked />CelesTrak Starlink</label>
+        <label><input id="srcCelestrakWeather" type="checkbox" checked />CelesTrak Weather</label>
+        <label><input id="srcCelestrakStations" type="checkbox" checked />CelesTrak Stations</label>
+        <label><input id="srcCelestrakGeo" type="checkbox" checked />CelesTrak GEO</label>
+        <label><input id="srcAmsat" type="checkbox" checked />AMSAT</label>
+      </div>
+      <label class="control-label"><input id="renderAsCircles" type="checkbox" /> Render as white circles</label>
+      <input id="renderLimitSlider" type="range" min="100" max="20000" step="100" value="5000" />
+      <p id="renderLimitLabel" class="control-label">Render cap: 5000 satellites</p>
+      <button id="reloadSourcesBtn">Reload Selected Sources</button>
+    </div>
+    <p id="status" class="status">Loading libraries...</p>
+    <p class="help">Controls: drag to rotate around Earth center, scroll to zoom.</p>
+    <div id="scaleInfo" class="scale-box">Scale: initializing...</div>
+    </div>
+  </section>
+  <section class="list-panel">
+    <div class="panel-header">
+      <h2>Satellites Above Location</h2>
+    </div>
+    <div class="panel-body">
+      <div class="list-wrap tall">
+        <ol id="satList"></ol>
+      </div>
+    </div>
+  </section>
+  </div>
+  <section class="sat-panel">
+    <div class="panel-header">
+      <h2>Selected Satellite</h2>
+      <button id="rightPanelToggle" class="panel-toggle">Minimize</button>
+    </div>
+    <div class="panel-body">
+    <div class="button-row">
+      <button id="toggleOrbitBtn">Show Orbit Path</button>
+    </div>
+    <div id="satInfo">Click a satellite to see details.</div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const statusEl = document.getElementById('status');
+  const satListEl = document.getElementById('satList');
+  const satInfoEl = document.getElementById('satInfo');
+  const addressInput = document.getElementById('addressInput');
+  const findBtn = document.getElementById('findBtn');
+  const toggleOrbitBtn = document.getElementById('toggleOrbitBtn');
+  const playPauseBtn = document.getElementById('playPauseBtn');
+  const liveNowBtn = document.getElementById('liveNowBtn');
+  const timeScrubber = document.getElementById('timeScrubber');
+  const timeOffsetLabel = document.getElementById('timeOffsetLabel');
+  const simTimeLabel = document.getElementById('simTimeLabel');
+  const speedSlider = document.getElementById('speedSlider');
+  const speedLabel = document.getElementById('speedLabel');
+  const realtimeSpeedBtn = document.getElementById('realtimeSpeedBtn');
+  const nearRangeSlider = document.getElementById('nearRangeSlider');
+  const nearRangeLabel = document.getElementById('nearRangeLabel');
+  const srcSatnogs = document.getElementById('srcSatnogs');
+  const srcCelestrakActive = document.getElementById('srcCelestrakActive');
+  const srcCelestrakStarlink = document.getElementById('srcCelestrakStarlink');
+  const srcCelestrakWeather = document.getElementById('srcCelestrakWeather');
+  const srcCelestrakStations = document.getElementById('srcCelestrakStations');
+  const srcCelestrakGeo = document.getElementById('srcCelestrakGeo');
+  const srcAmsat = document.getElementById('srcAmsat');
+  const renderAsCircles = document.getElementById('renderAsCircles');
+  const renderLimitSlider = document.getElementById('renderLimitSlider');
+  const renderLimitLabel = document.getElementById('renderLimitLabel');
+  const reloadSourcesBtn = document.getElementById('reloadSourcesBtn');
+  const leftPanelToggle = document.getElementById('leftPanelToggle');
+  const rightPanelToggle = document.getElementById('rightPanelToggle');
+  const leftPanel = document.querySelector('.panel');
+  const rightPanel = document.querySelector('.sat-panel');
+  const scaleInfo = document.getElementById('scaleInfo');
+
+  function setStatus(text, type = '') {
+    statusEl.textContent = text;
+    statusEl.className = `status ${type}`.trim();
+  }
+
+  function togglePanel(panelEl, buttonEl) {
+    panelEl.classList.toggle('minimized');
+    buttonEl.textContent = panelEl.classList.contains('minimized') ? 'Expand' : 'Minimize';
+  }
+
+  function formatPlaybackSpeed(minPerSec) {
+    const secPerSec = minPerSec * 60;
+    if (Math.abs(secPerSec - 1) < 1e-3) {
+      return 'Playback speed: 1.00 s/s (real-time)';
+    }
+    if (secPerSec < 60) {
+      return `Playback speed: ${secPerSec.toFixed(2)} s/s`;
+    }
+    return `Playback speed: ${minPerSec.toFixed(2)} min/s`;
+  }
+
+  function loadScript(url, timeoutMs = 12000) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      const timer = setTimeout(() => {
+        script.remove();
+        reject(new Error(`Timed out loading ${url}`));
+      }, timeoutMs);
+      script.onload = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      script.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error(`Failed loading ${url}`));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  async function loadFirstWorking(name, urls, validator) {
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        setStatus(`Loading ${name}...`);
+        await loadScript(url);
+        if (validator()) return;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error(`${name} failed to load`);
+  }
+
+  async function fetchWithTimeout(url, timeoutMs = 7000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function parseTLE(tleText) {
+    const lines = tleText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const parsed = [];
+    for (let i = 0; i < lines.length - 2; i++) {
+      const name = lines[i];
+      const line1 = lines[i + 1];
+      const line2 = lines[i + 2];
+      if (line1.startsWith('1 ') && line2.startsWith('2 ')) {
+        try {
+          const satrec = satellite.twoline2satrec(line1, line2);
+          parsed.push({ name, satrec, mesh: null });
+          i += 2;
+        } catch {}
+      }
+    }
+    return parsed;
+  }
+
+  function parseSatNogsJson(jsonText) {
+    const out = [];
+    const rows = JSON.parse(jsonText);
+    if (!Array.isArray(rows)) return out;
+    for (const row of rows) {
+      const l0 = (row.tle0 || '').trim();
+      const l1 = (row.tle1 || '').trim();
+      const l2 = (row.tle2 || '').trim();
+      if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
+      try {
+        const satrec = satellite.twoline2satrec(l1, l2);
+        const name = l0.replace(/^0\s+/, '') || `NORAD ${row.norad_cat_id || ''}`.trim();
+        const tleSource = String(row.tle_source || '');
+        let sourceGroup = 'satnogs';
+        if (tleSource.startsWith('CelesTrak active')) sourceGroup = 'celestrak_active';
+        else if (tleSource.startsWith('CelesTrak starlink')) sourceGroup = 'celestrak_starlink';
+        else if (tleSource.startsWith('CelesTrak weather')) sourceGroup = 'celestrak_weather';
+        else if (tleSource.startsWith('CelesTrak stations')) sourceGroup = 'celestrak_stations';
+        else if (tleSource.startsWith('CelesTrak geo')) sourceGroup = 'celestrak_geo';
+        out.push({ name, satrec, mesh: null, sourceGroup });
+      } catch {}
+    }
+    return out;
+  }
+
+  function getSelectedSourceFilters() {
+    const selected = [];
+    if (srcSatnogs.checked) selected.push('satnogs');
+    if (srcCelestrakActive.checked) selected.push('celestrak_active');
+    if (srcCelestrakStarlink.checked) selected.push('celestrak_starlink');
+    if (srcCelestrakWeather.checked) selected.push('celestrak_weather');
+    if (srcCelestrakStations.checked) selected.push('celestrak_stations');
+    if (srcCelestrakGeo.checked) selected.push('celestrak_geo');
+    if (srcAmsat.checked) selected.push('amsat');
+    return selected;
+  }
+
+  async function fetchSatelliteData(onProgress) {
+    const merged = [];
+    const seen = new Set();
+
+    // Primary path: local proxy endpoint from server.py (real live SatNOGS TLEs).
+    try {
+      onProgress('Loading satellite data from local proxy...');
+      const proxyRes = await fetchWithTimeout('/api/tle', 12000);
+      if (proxyRes.ok) {
+        const parsed = parseSatNogsJson(await proxyRes.text());
+        for (const sat of parsed) {
+          const key = sat.satrec && sat.satrec.satnum ? sat.satrec.satnum : sat.name;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(sat);
+        }
+        if (merged.length > 0) {
+          onProgress(`Loaded ${merged.length} satellites from proxy.`);
+          return merged;
+        }
+      }
+    } catch {}
+
+    // Backup path: direct providers (can fail due provider outages/CORS/TLS issues).
+    const feeds = [
+      { key: 'celestrak_active', name: 'CelesTrak active', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle', parser: parseTLE },
+      { key: 'celestrak_starlink', name: 'CelesTrak starlink', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle', parser: parseTLE },
+      { key: 'celestrak_weather', name: 'CelesTrak weather', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=tle', parser: parseTLE },
+      { key: 'celestrak_stations', name: 'CelesTrak stations', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle', parser: parseTLE },
+      { key: 'celestrak_geo', name: 'CelesTrak geo', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle', parser: parseTLE },
+      { key: 'amsat', name: 'AMSAT', url: 'https://www.amsat.org/tle/current/nasabare.txt', parser: parseTLE }
+    ];
+    for (const feed of feeds) {
+      try {
+        onProgress(`Trying ${feed.name}...`);
+        const res = await fetchWithTimeout(feed.url, 9000);
+        if (!res.ok) continue;
+        const parsed = feed.parser(await res.text());
+        for (const sat of parsed) {
+          sat.sourceGroup = feed.key;
+          const key = sat.satrec && sat.satrec.satnum ? sat.satrec.satnum : sat.name;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(sat);
+        }
+        if (merged.length > 0) break;
+      } catch {}
+    }
+    return merged;
+  }
+
+  async function geocodeAddress(query) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+    const res = await fetchWithTimeout(url, 9000);
+    if (!res.ok) throw new Error('Geocoding request failed.');
+    const results = await res.json();
+    if (!Array.isArray(results) || !results.length) throw new Error('Address not found.');
+    return {
+      lat: Number(results[0].lat),
+      lon: Number(results[0].lon),
+      label: results[0].display_name
+    };
+  }
+
+  async function geocodeAddressWithRetry(query) {
+    try {
+      return await geocodeAddress(query);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      return geocodeAddress(query);
+    }
+  }
+
+  async function boot() {
+    try {
+      await loadFirstWorking('Three.js', [
+        'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+        'https://unpkg.com/three@0.160.0/build/three.min.js'
+      ], () => typeof window.THREE !== 'undefined');
+
+      await loadFirstWorking('satellite.js', [
+        'https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js',
+        'https://unpkg.com/satellite.js@5.0.0/dist/satellite.min.js'
+      ], () => typeof window.satellite !== 'undefined');
+
+      setStatus('Loading satellite data...');
+      startApp();
+    } catch (err) {
+      setStatus(`Library load failed: ${err.message}`, 'error');
+    }
+  }
+
+  function startApp() {
+    const EARTH_RADIUS_KM = 6371;
+    const EARTH_MESH_RADIUS = 10;
+    const SAT_SCALE = EARTH_MESH_RADIUS / EARTH_RADIUS_KM;
+    const MAX_SATS_DETAILED = 20000;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030916);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
+    camera.position.set(0, 18, 30);
+
+    const canvas = document.getElementById('scene');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    class SimpleControls {
+      constructor(cameraRef, domElementRef) {
+        this.camera = cameraRef;
+        this.dom = domElementRef;
+        this.target = new THREE.Vector3(0, 0, 0);
+        this.distance = 36;
+        this.minDistance = 13;
+        this.maxDistance = 260;
+        this.azimuth = 0.7;
+        this.polar = 1.1;
+        this.state = null;
+        this.lastX = 0;
+        this.lastY = 0;
+
+        this.onDown = this.onDown.bind(this);
+        this.onMove = this.onMove.bind(this);
+        this.onUp = this.onUp.bind(this);
+        this.onWheel = this.onWheel.bind(this);
+        this.onContext = (e) => e.preventDefault();
+
+        this.dom.addEventListener('mousedown', this.onDown);
+        window.addEventListener('mousemove', this.onMove);
+        window.addEventListener('mouseup', this.onUp);
+        this.dom.addEventListener('wheel', this.onWheel, { passive: false });
+        this.dom.addEventListener('contextmenu', this.onContext);
+      }
+
+      onDown(e) {
+        this.state = e.button === 0 ? 'rotate' : null;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+      }
+
+      onMove(e) {
+        if (!this.state) return;
+        const dx = e.clientX - this.lastX;
+        const dy = e.clientY - this.lastY;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+
+        this.azimuth -= dx * 0.005;
+        this.polar -= dy * 0.005;
+        const eps = 0.05;
+        this.polar = Math.max(eps, Math.min(Math.PI - eps, this.polar));
+      }
+
+      onUp() {
+        this.state = null;
+      }
+
+      onWheel(e) {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1.08 : 0.92;
+        this.distance *= factor;
+        this.distance = Math.max(this.minDistance, Math.min(this.maxDistance, this.distance));
+      }
+
+      update() {
+        const sinP = Math.sin(this.polar);
+        const x = this.target.x + this.distance * sinP * Math.cos(this.azimuth);
+        const y = this.target.y + this.distance * Math.cos(this.polar);
+        const z = this.target.z + this.distance * sinP * Math.sin(this.azimuth);
+        this.camera.position.set(x, y, z);
+        this.camera.lookAt(this.target);
+      }
+    }
+
+    const controls = new SimpleControls(camera, renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0x7da2c5, 0.72));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+    sun.position.set(30, 20, 40);
+    scene.add(sun);
+
+    async function loadTextureWithFallback(urls) {
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      for (const url of urls) {
+        try {
+          const tex = await new Promise((resolve, reject) => {
+            loader.load(url, resolve, undefined, () => reject(new Error(`failed ${url}`)));
+          });
+          return tex;
+        } catch {}
+      }
+      return null;
+    }
+
+    const earthGroup = new THREE.Group();
+    scene.add(earthGroup);
+    const earthMaterial = new THREE.MeshPhongMaterial({
+      color: 0xffffff,
+      emissive: 0x010306,
+      shininess: 5,
+      specular: 0x1f2f3d
+    });
+    const earthMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(EARTH_MESH_RADIUS, 64, 64),
+      earthMaterial
+    );
+    earthGroup.add(earthMesh);
+    earthGroup.add(new THREE.Mesh(
+      new THREE.SphereGeometry(EARTH_MESH_RADIUS * 1.03, 64, 64),
+      new THREE.MeshBasicMaterial({ color: 0x8bc6ff, transparent: true, opacity: 0.05 })
+    ));
+
+    const stars = new THREE.Points(
+      new THREE.BufferGeometry(),
+      new THREE.PointsMaterial({
+        color: 0x6f86a6,
+        size: 0.22,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false
+      })
+    );
+    const starCount = 1500;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = 260 + Math.random() * 340;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      starPositions[i * 3 + 1] = r * Math.cos(phi);
+      starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    stars.geometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    scene.add(stars);
+
+    const satBodyGeometry = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+    const satPanelGeometry = new THREE.BoxGeometry(0.22, 0.05, 0.01);
+    const satAntennaGeometry = new THREE.CylinderGeometry(0.008, 0.008, 0.1, 6);
+    const satBodyMaterialBase = new THREE.MeshPhongMaterial({
+      color: 0xc7d3df,
+      emissive: 0x10151a,
+      shininess: 70,
+      specular: 0xffffff
+    });
+    const satPanelMaterial = new THREE.MeshPhongMaterial({
+      color: 0x3b89d4,
+      emissive: 0x0a1d33,
+      shininess: 20,
+      specular: 0x7fb0e6
+    });
+    const satAntennaMaterial = new THREE.MeshPhongMaterial({
+      color: 0x93a4b3,
+      emissive: 0x0f1318,
+      shininess: 50,
+      specular: 0xd6e2ef
+    });
+    const satHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const satHitGeometry = new THREE.SphereGeometry(0.22, 8, 8);
+    const satGroup = new THREE.Group();
+    scene.add(satGroup);
+    const satOverflowGroup = new THREE.Group();
+    scene.add(satOverflowGroup);
+
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 10), new THREE.MeshBasicMaterial({ color: 0xff6f61 }));
+    marker.visible = false;
+    scene.add(marker);
+    const locationLinksGroup = new THREE.Group();
+    scene.add(locationLinksGroup);
+    const selectedHalo = new THREE.Mesh(
+      new THREE.RingGeometry(0.14, 0.2, 32),
+      new THREE.MeshBasicMaterial({ color: 0x4ec1ff, side: THREE.DoubleSide, transparent: true, opacity: 0.95 })
+    );
+    selectedHalo.visible = false;
+    scene.add(selectedHalo);
+
+    let satellites = [];
+    let allSatellitesRaw = [];
+    let satMeshes = [];
+    let satHitMeshes = [];
+    let overflowSatellites = [];
+    let overflowPositions = null;
+    let overflowPoints = null;
+    let selectedObserver = null;
+    let selectedSatellite = null;
+    let selectedMesh = null;
+    let listSelectedSatellite = null;
+    let overheadVisibleSatellites = [];
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let orbitLine = null;
+    let orbitVisible = false;
+    let lastOrbitUpdateMs = 0;
+    let followedSatellite = null;
+    let simPaused = true;
+    let liveMode = false;
+    let simTimeMs = Date.now();
+    let playbackMinPerSec = Number(speedSlider.value);
+    let nearRangeDeg = Number(nearRangeSlider.value);
+    let renderCap = Number(renderLimitSlider.value);
+    let renderWhiteCircles = renderAsCircles.checked;
+    const _tmpForward = new THREE.Vector3();
+    const _tmpNadir = new THREE.Vector3();
+    const _tmpRight = new THREE.Vector3();
+    const _tmpUp = new THREE.Vector3();
+    const _tmpFuturePos = new THREE.Vector3();
+    const _tmpBasis = new THREE.Matrix4();
+    raycaster.params.Points.threshold = 0.16;
+
+    function createSatelliteVisual() {
+      if (renderWhiteCircles) {
+        return new THREE.Mesh(
+          new THREE.SphereGeometry(0.07, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+      }
+      const group = new THREE.Group();
+
+      const bodyMaterial = satBodyMaterialBase.clone();
+      const body = new THREE.Mesh(satBodyGeometry, bodyMaterial);
+      group.add(body);
+
+      const leftPanel = new THREE.Mesh(satPanelGeometry, satPanelMaterial);
+      leftPanel.position.set(-0.19, 0, 0);
+      group.add(leftPanel);
+
+      const rightPanel = new THREE.Mesh(satPanelGeometry, satPanelMaterial);
+      rightPanel.position.set(0.19, 0, 0);
+      group.add(rightPanel);
+
+      const antenna = new THREE.Mesh(satAntennaGeometry, satAntennaMaterial);
+      antenna.position.set(0, -0.1, 0);
+      antenna.rotation.z = Math.PI / 2;
+      group.add(antenna);
+
+      return group;
+    }
+
+    function updateRenderLimitLabel() {
+      renderLimitLabel.textContent = `Render cap: ${renderCap} satellites`;
+    }
+
+    function geodeticToScene(latRad, lonRad, heightKm = 0) {
+      const r = (EARTH_RADIUS_KM + heightKm) * SAT_SCALE;
+      return new THREE.Vector3(
+        r * Math.cos(latRad) * Math.cos(lonRad),
+        r * Math.sin(latRad),
+        -r * Math.cos(latRad) * Math.sin(lonRad)
+      );
+    }
+
+    function angularDistanceDeg(lat1, lon1, lat2, lon2) {
+      const dLon = lon2 - lon1;
+      const cosD = (
+        Math.sin(lat1) * Math.sin(lat2) +
+        Math.cos(lat1) * Math.cos(lat2) * Math.cos(dLon)
+      );
+      const clamped = Math.max(-1, Math.min(1, cosD));
+      return satellite.radiansToDegrees(Math.acos(clamped));
+    }
+
+    function buildSatMeshes() {
+      satMeshes.forEach((mesh) => satGroup.remove(mesh));
+      satHitMeshes.forEach((mesh) => satGroup.remove(mesh));
+      if (overflowPoints) {
+        satOverflowGroup.remove(overflowPoints);
+        overflowPoints.geometry.dispose();
+        overflowPoints.material.dispose();
+        overflowPoints = null;
+        overflowPositions = null;
+      }
+      satMeshes = [];
+      satHitMeshes = [];
+      satellites.forEach((sat) => {
+        sat.mesh = null;
+        sat.hitMesh = null;
+        sat.overflowIndex = null;
+      });
+
+      const visibleSatellites = satellites.slice(0, Math.min(renderCap, satellites.length));
+      visibleSatellites.slice(0, MAX_SATS_DETAILED).forEach((sat) => {
+        const mesh = createSatelliteVisual();
+        const hitMesh = new THREE.Mesh(satHitGeometry, satHitMaterial);
+        mesh.visible = false;
+        hitMesh.visible = false;
+        mesh.userData.sat = sat;
+        hitMesh.userData.sat = sat;
+        sat.mesh = mesh;
+        sat.hitMesh = hitMesh;
+        sat.overflowIndex = null;
+        satGroup.add(mesh);
+        satGroup.add(hitMesh);
+        satMeshes.push(mesh);
+        satHitMeshes.push(hitMesh);
+      });
+
+      overflowSatellites = visibleSatellites.slice(MAX_SATS_DETAILED);
+      if (overflowSatellites.length > 0) {
+        overflowPositions = new Float32Array(overflowSatellites.length * 3);
+        const overflowGeom = new THREE.BufferGeometry();
+        overflowGeom.setAttribute('position', new THREE.BufferAttribute(overflowPositions, 3));
+        const overflowMat = new THREE.PointsMaterial({
+          color: 0xffd166,
+          size: 0.055,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false
+        });
+        overflowPoints = new THREE.Points(overflowGeom, overflowMat);
+        overflowPoints.userData.kind = 'overflowPoints';
+        satOverflowGroup.add(overflowPoints);
+        overflowSatellites.forEach((sat, i) => {
+          sat.overflowIndex = i;
+        });
+      }
+    }
+
+    function updateSatPositions(now) {
+      const gmst = satellite.gstime(now);
+      satellites.forEach((sat) => {
+        const pv = satellite.propagate(sat.satrec, now);
+        if (!pv.position) {
+          if (sat.mesh) sat.mesh.visible = false;
+          if (sat.hitMesh) sat.hitMesh.visible = false;
+          if (sat.overflowIndex !== null && sat.overflowIndex !== undefined && overflowPositions) {
+            const k = sat.overflowIndex * 3;
+            if (k >= 0 && k + 2 < overflowPositions.length) {
+              overflowPositions[k] = 1e9;
+              overflowPositions[k + 1] = 1e9;
+              overflowPositions[k + 2] = 1e9;
+            }
+          }
+          return;
+        }
+        const geodetic = satellite.eciToGeodetic(pv.position, gmst);
+        sat.lastGeo = geodetic;
+        if (pv.velocity) {
+          sat.lastSpeedKmS = Math.sqrt(
+            (pv.velocity.x * pv.velocity.x) +
+            (pv.velocity.y * pv.velocity.y) +
+            (pv.velocity.z * pv.velocity.z)
+          );
+        }
+        const scenePos = geodeticToScene(geodetic.latitude, geodetic.longitude, geodetic.height);
+        if (sat.mesh && sat.hitMesh) {
+          sat.mesh.position.copy(scenePos);
+          sat.hitMesh.position.copy(sat.mesh.position);
+          sat.mesh.visible = true;
+          sat.hitMesh.visible = true;
+          if (sat.overflowIndex !== null && sat.overflowIndex !== undefined && overflowPositions) {
+            const ok = sat.overflowIndex * 3;
+            if (ok >= 0 && ok + 2 < overflowPositions.length) {
+              overflowPositions[ok] = 1e9;
+              overflowPositions[ok + 1] = 1e9;
+              overflowPositions[ok + 2] = 1e9;
+            }
+          }
+        } else if (sat.overflowIndex !== null && sat.overflowIndex !== undefined && overflowPositions) {
+          const k = sat.overflowIndex * 3;
+          if (k >= 0 && k + 2 < overflowPositions.length) {
+            overflowPositions[k] = scenePos.x;
+            overflowPositions[k + 1] = scenePos.y;
+            overflowPositions[k + 2] = scenePos.z;
+          }
+        }
+
+        // Approximate attitude from orbital data:
+        // X axis -> velocity direction, Y axis -> local orbital frame, Z axis -> nadir.
+        const future = new Date(now.getTime() + 20000);
+        const futurePv = satellite.propagate(sat.satrec, future);
+        if (futurePv.position && sat.mesh) {
+          const futureGmst = satellite.gstime(future);
+          const futureGeo = satellite.eciToGeodetic(futurePv.position, futureGmst);
+          _tmpFuturePos.copy(geodeticToScene(futureGeo.latitude, futureGeo.longitude, futureGeo.height));
+
+          _tmpForward.copy(_tmpFuturePos).sub(sat.mesh.position).normalize();
+          _tmpNadir.copy(sat.mesh.position).multiplyScalar(-1).normalize();
+          _tmpRight.crossVectors(_tmpForward, _tmpNadir).normalize();
+
+          if (_tmpRight.lengthSq() > 1e-6) {
+            _tmpUp.crossVectors(_tmpNadir, _tmpRight).normalize();
+            _tmpBasis.makeBasis(_tmpForward, _tmpUp, _tmpNadir);
+            sat.mesh.quaternion.setFromRotationMatrix(_tmpBasis);
+          }
+        }
+      });
+      if (overflowPoints && overflowPoints.geometry && overflowPoints.geometry.attributes.position) {
+        overflowPoints.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
+    function promoteSatelliteToDetailed(sat) {
+      if (!sat || sat.mesh) return;
+      const mesh = createSatelliteVisual();
+      const hitMesh = new THREE.Mesh(satHitGeometry, satHitMaterial);
+      mesh.visible = true;
+      hitMesh.visible = true;
+      mesh.userData.sat = sat;
+      hitMesh.userData.sat = sat;
+      sat.mesh = mesh;
+      sat.hitMesh = hitMesh;
+      satGroup.add(mesh);
+      satGroup.add(hitMesh);
+      satMeshes.push(mesh);
+      satHitMeshes.push(hitMesh);
+      if (sat.lastGeo) {
+        const p = geodeticToScene(sat.lastGeo.latitude, sat.lastGeo.longitude, sat.lastGeo.height);
+        sat.mesh.position.copy(p);
+        sat.hitMesh.position.copy(p);
+      }
+    }
+
+    function withinClickTolerance(worldPos, clientX, clientY, canvasEl, cam, maxPx = 12) {
+      if (!worldPos) return false;
+      const projected = worldPos.clone().project(cam);
+      if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) {
+        return false;
+      }
+      const rect = canvasEl.getBoundingClientRect();
+      const sx = ((projected.x + 1) * 0.5) * rect.width + rect.left;
+      const sy = ((-projected.y + 1) * 0.5) * rect.height + rect.top;
+      return Math.hypot(clientX - sx, clientY - sy) <= maxPx;
+    }
+
+    function applySourceFiltersAndRebuild() {
+      const selected = new Set(getSelectedSourceFilters());
+      satellites = allSatellitesRaw.filter((sat) => selected.has(sat.sourceGroup || 'satnogs'));
+      renderCap = Math.max(100, Number(renderLimitSlider.value));
+      selectedSatellite = null;
+      selectedMesh = null;
+      followedSatellite = null;
+      clearOrbitLine();
+      orbitVisible = false;
+      toggleOrbitBtn.textContent = 'Show Orbit Path';
+      buildSatMeshes();
+      updateRenderLimitLabel();
+      setStatus(`Loaded ${satellites.length} satellites from selected sources.`, satellites.length ? 'ok' : 'error');
+    }
+
+    function formatLatLon(rad, pos, neg) {
+      const deg = Math.abs(satellite.radiansToDegrees(rad)).toFixed(2);
+      return `${deg} ${rad >= 0 ? pos : neg}`;
+    }
+
+    function radiansToDeg(rad) {
+      return satellite.radiansToDegrees(rad).toFixed(2);
+    }
+
+    function julianToDateString(jd) {
+      if (!Number.isFinite(jd)) return 'n/a';
+      const ms = (jd - 2440587.5) * 86400000;
+      const d = new Date(ms);
+      if (Number.isNaN(d.getTime())) return 'n/a';
+      return d.toUTCString();
+    }
+
+    function updateSelectedInfo() {
+      if (!selectedSatellite || !selectedSatellite.lastGeo) {
+        satInfoEl.textContent = 'Click a satellite to see details.';
+        selectedHalo.visible = false;
+        return;
+      }
+      if (selectedMesh) {
+        selectedHalo.visible = true;
+        selectedHalo.position.copy(selectedMesh.position);
+        selectedHalo.lookAt(camera.position);
+        const isRed = (followedSatellite === selectedSatellite) || (listSelectedSatellite === selectedSatellite);
+        selectedHalo.material.color.set(isRed ? 0xff4a4a : 0x4ec1ff);
+      }
+      const geo = selectedSatellite.lastGeo;
+      const altKm = Math.max(0, geo.height);
+      const speed = selectedSatellite.lastSpeedKmS ? selectedSatellite.lastSpeedKmS.toFixed(2) : 'n/a';
+      const satrec = selectedSatellite.satrec || {};
+      const revPerDay = Number.isFinite(satrec.no) ? (satrec.no * 1440 / (Math.PI * 2)) : null;
+      const periodMin = revPerDay ? (1440 / revPerDay) : null;
+      const footprintKm = Math.sqrt(Math.max(0, ((EARTH_RADIUS_KM + altKm) ** 2) - (EARTH_RADIUS_KM ** 2)));
+      let observerText = 'Observer look angles: n/a (enter an address)';
+      if (selectedObserver) {
+        const now = new Date();
+        const pv = satellite.propagate(selectedSatellite.satrec, now);
+        if (pv.position) {
+          const gmst = satellite.gstime(now);
+          const ecf = satellite.eciToEcf(pv.position, gmst);
+          const observerGd = {
+            longitude: satellite.degreesToRadians(selectedObserver.lon),
+            latitude: satellite.degreesToRadians(selectedObserver.lat),
+            height: 0
+          };
+          const look = satellite.ecfToLookAngles(observerGd, ecf);
+          observerText = `Observer look angles: az ${satellite.radiansToDegrees(look.azimuth).toFixed(1)} deg, el ${satellite.radiansToDegrees(look.elevation).toFixed(1)} deg, range ${(look.rangeSat || 0).toFixed(1)} km`;
+        }
+      }
+
+      satInfoEl.innerHTML =
+        `<strong>${selectedSatellite.name}</strong><br/>` +
+        `NORAD ID: ${satrec.satnum || 'n/a'}<br/>` +
+        `Altitude: ${altKm.toFixed(1)} km<br/>` +
+        `Speed: ${speed} km/s<br/>` +
+        `Latitude: ${formatLatLon(geo.latitude, 'N', 'S')}<br/>` +
+        `Longitude: ${formatLatLon(geo.longitude, 'E', 'W')}<br/>` +
+        `Estimated footprint radius: ${footprintKm.toFixed(1)} km<br/>` +
+        `Inclination: ${Number.isFinite(satrec.inclo) ? `${radiansToDeg(satrec.inclo)} deg` : 'n/a'}<br/>` +
+        `Eccentricity: ${Number.isFinite(satrec.ecco) ? satrec.ecco.toFixed(7) : 'n/a'}<br/>` +
+        `RAAN: ${Number.isFinite(satrec.nodeo) ? `${radiansToDeg(satrec.nodeo)} deg` : 'n/a'}<br/>` +
+        `Arg of perigee: ${Number.isFinite(satrec.argpo) ? `${radiansToDeg(satrec.argpo)} deg` : 'n/a'}<br/>` +
+        `Mean anomaly: ${Number.isFinite(satrec.mo) ? `${radiansToDeg(satrec.mo)} deg` : 'n/a'}<br/>` +
+        `Mean motion: ${revPerDay ? `${revPerDay.toFixed(5)} rev/day` : 'n/a'}<br/>` +
+        `Orbit period: ${periodMin ? `${periodMin.toFixed(1)} min` : 'n/a'}<br/>` +
+        `Epoch (UTC): ${julianToDateString(satrec.jdsatepoch)}<br/>` +
+        `${observerText}`;
+    }
+
+    function selectSatellite(sat, mesh, source = 'scene') {
+      if (source !== 'list') {
+        listSelectedSatellite = null;
+      }
+      selectedSatellite = sat;
+      selectedMesh = mesh;
+      updateSelectedInfo();
+    }
+
+    function startFollowingSatellite(sat) {
+      if (!sat || !sat.mesh) return;
+      followedSatellite = sat;
+      controls.target.copy(sat.mesh.position);
+      const offset = camera.position.clone().sub(sat.mesh.position);
+      controls.distance = Math.max(controls.minDistance, Math.min(controls.maxDistance, offset.length()));
+      const dir = offset.normalize();
+      controls.azimuth = Math.atan2(dir.z, dir.x);
+      controls.polar = Math.acos(Math.max(-1, Math.min(1, dir.y)));
+      controls.update();
+      setStatus(`Following ${sat.name}. Double-click again to stop following.`, 'ok');
+    }
+
+    function stopFollowingSatellite() {
+      followedSatellite = null;
+      controls.target.set(0, 0, 0);
+      setStatus('Stopped following satellite.', 'ok');
+    }
+
+    function clearOrbitLine() {
+      if (!orbitLine) return;
+      scene.remove(orbitLine);
+      orbitLine.geometry.dispose();
+      orbitLine.material.dispose();
+      orbitLine = null;
+    }
+
+    function buildOrbitLineForSelected(referenceDate) {
+      clearOrbitLine();
+      if (!selectedSatellite) return;
+      const satrec = selectedSatellite.satrec;
+      if (!satrec) return;
+      const revPerDay = Number.isFinite(satrec.no) ? (satrec.no * 1440 / (Math.PI * 2)) : null;
+      const periodMin = revPerDay ? (1440 / revPerDay) : 95;
+      const orbitSpanCount = 4;
+      const segments = 180 * orbitSpanCount;
+      const pts = [];
+      for (let i = 0; i <= segments; i++) {
+        const dtMin = (i / segments) * periodMin * orbitSpanCount;
+        const t = new Date(referenceDate.getTime() + dtMin * 60000);
+        const gmst = satellite.gstime(t);
+        const pv = satellite.propagate(satrec, t);
+        if (!pv.position) continue;
+        const geo = satellite.eciToGeodetic(pv.position, gmst);
+        pts.push(geodeticToScene(geo.latitude, geo.longitude, geo.height));
+      }
+      if (pts.length < 2) return;
+      const geom = new THREE.BufferGeometry().setFromPoints(pts);
+      const mat = new THREE.LineBasicMaterial({ color: 0xffa43a, transparent: true, opacity: 0.95 });
+      orbitLine = new THREE.Line(geom, mat);
+      scene.add(orbitLine);
+    }
+
+    function setPlayState(paused) {
+      simPaused = paused;
+      playPauseBtn.textContent = simPaused ? 'Play' : 'Pause';
+      simTimeLabel.textContent = `Simulation time: ${new Date(simTimeMs).toUTCString()}${liveMode ? ' (live)' : (simPaused ? ' (paused)' : '')}`;
+    }
+
+    function updateScaleInfo() {
+      const kmPerSceneUnit = EARTH_RADIUS_KM / EARTH_MESH_RADIUS;
+      const cameraDistKm = controls.distance * kmPerSceneUnit;
+      const cameraAltKm = Math.max(0, cameraDistKm - EARTH_RADIUS_KM);
+      scaleInfo.innerHTML =
+        `Scale: 1 scene unit = ${kmPerSceneUnit.toFixed(1)} km<br/>` +
+        `Earth radius: ${EARTH_RADIUS_KM} km (${EARTH_MESH_RADIUS} units)<br/>` +
+        `Camera distance: ${cameraDistKm.toFixed(0)} km<br/>` +
+        `Camera altitude above surface: ${cameraAltKm.toFixed(0)} km`;
+    }
+
+    function focusOnSatellite(sat) {
+      if (!sat) return;
+      if (!sat.mesh) {
+        promoteSatelliteToDetailed(sat);
+      }
+      const pos = sat.mesh ? sat.mesh.position.clone() :
+        (sat.lastGeo ? geodeticToScene(sat.lastGeo.latitude, sat.lastGeo.longitude, sat.lastGeo.height) : null);
+      if (!pos) return;
+      const dir = pos.normalize();
+      controls.azimuth = Math.atan2(dir.z, dir.x);
+      controls.polar = Math.acos(Math.max(-1, Math.min(1, dir.y)));
+      const eps = 0.05;
+      controls.polar = Math.max(eps, Math.min(Math.PI - eps, controls.polar));
+      controls.update();
+    }
+
+    function updateOverheadList(now) {
+      satListEl.innerHTML = '';
+      overheadVisibleSatellites = [];
+      if (!selectedObserver) return;
+
+      const observerGd = {
+        longitude: satellite.degreesToRadians(selectedObserver.lon),
+        latitude: satellite.degreesToRadians(selectedObserver.lat),
+        height: 0
+      };
+      const gmst = satellite.gstime(now);
+      const visible = [];
+
+      satellites.forEach((sat) => {
+        const pv = satellite.propagate(sat.satrec, now);
+        if (!pv.position) return;
+        const ecf = satellite.eciToEcf(pv.position, gmst);
+        const look = satellite.ecfToLookAngles(observerGd, ecf);
+        const elevationDeg = satellite.radiansToDegrees(look.elevation);
+        if (elevationDeg > 0) visible.push({ sat, elevationDeg });
+      });
+
+      visible.sort((a, b) => b.elevationDeg - a.elevationDeg);
+      if (!visible.length) {
+        const li = document.createElement('li');
+        li.textContent = 'No satellites above the horizon right now.';
+        satListEl.appendChild(li);
+        return;
+      }
+
+      const topVisible = visible.slice(0, 30);
+      overheadVisibleSatellites = topVisible.map((item) => item.sat);
+      topVisible.forEach((item) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.className = 'sat-list-btn';
+        btn.textContent = `${item.sat.name} (${item.elevationDeg.toFixed(1)} deg)`;
+        btn.addEventListener('click', () => {
+          if (!item.sat.mesh) {
+            promoteSatelliteToDetailed(item.sat);
+          }
+          listSelectedSatellite = item.sat;
+          selectSatellite(item.sat, item.sat.mesh || null, 'list');
+          focusOnSatellite(item.sat);
+          startFollowingSatellite(item.sat);
+        });
+        li.appendChild(btn);
+        satListEl.appendChild(li);
+      });
+    }
+
+    function clearLocationLinks() {
+      while (locationLinksGroup.children.length) {
+        const line = locationLinksGroup.children.pop();
+        if (line.geometry) line.geometry.dispose();
+        if (line.material) line.material.dispose();
+      }
+    }
+
+    function updateLocationLinks() {
+      clearLocationLinks();
+      if (!selectedObserver || !marker.visible) return;
+
+      const satsForLines = overheadVisibleSatellites.length
+        ? overheadVisibleSatellites
+        : satellites.filter((sat) => sat.lastGeo).slice(0, 40);
+
+      for (const sat of satsForLines) {
+        if (!sat.lastGeo) continue;
+        const satPos = sat.mesh ? sat.mesh.position.clone() : geodeticToScene(sat.lastGeo.latitude, sat.lastGeo.longitude, sat.lastGeo.height);
+        const points = [marker.position.clone(), satPos];
+        const geom = new THREE.BufferGeometry().setFromPoints(points);
+        const alpha = 0.8;
+        const mat = new THREE.LineBasicMaterial({ color: 0x66c9ff, transparent: true, opacity: alpha });
+        const line = new THREE.Line(geom, mat);
+        locationLinksGroup.add(line);
+      }
+    }
+
+    async function handleFindAddress() {
+      const query = addressInput.value.trim();
+      if (!query) {
+        setStatus('Enter an address first.', 'error');
+        return;
+      }
+      setStatus('Looking up address...');
+      try {
+        const location = await geocodeAddressWithRetry(query);
+        selectedObserver = location;
+        marker.position.copy(geodeticToScene(
+          satellite.degreesToRadians(location.lat),
+          satellite.degreesToRadians(location.lon),
+          0.08
+        ));
+        marker.visible = true;
+
+        // Snap camera once so the chosen location is centered, without locking tracking.
+        const dir = marker.position.clone().normalize();
+        controls.azimuth = Math.atan2(dir.z, dir.x);
+        controls.polar = Math.acos(Math.max(-1, Math.min(1, dir.y)));
+        const eps = 0.05;
+        controls.polar = Math.max(eps, Math.min(Math.PI - eps, controls.polar));
+        controls.update();
+
+        setStatus(`Tracking overhead satellites for: ${location.label}`, 'ok');
+      } catch (err) {
+        setStatus(err.message || 'Failed to geocode address.', 'error');
+      }
+    }
+
+    findBtn.addEventListener('click', handleFindAddress);
+    addressInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleFindAddress(); });
+    toggleOrbitBtn.addEventListener('click', () => {
+      if (!selectedSatellite) {
+        setStatus('Select a satellite first to show its orbit path.', 'error');
+        return;
+      }
+      orbitVisible = !orbitVisible;
+      toggleOrbitBtn.textContent = orbitVisible ? 'Hide Orbit Path' : 'Show Orbit Path';
+      if (orbitVisible) {
+        buildOrbitLineForSelected(new Date(simTimeMs));
+      } else {
+        clearOrbitLine();
+      }
+    });
+    playPauseBtn.addEventListener('click', () => {
+      setPlayState(!simPaused);
+    });
+    liveNowBtn.addEventListener('click', () => {
+      liveMode = true;
+      simTimeMs = Date.now();
+      timeScrubber.value = '0';
+      timeOffsetLabel.textContent = 'Time offset: 0 min (live real-time)';
+      setPlayState(false);
+      setStatus('Live now mode: running at real-time speed (1x).', 'ok');
+    });
+    timeScrubber.addEventListener('input', () => {
+      const offsetMin = Number(timeScrubber.value);
+      liveMode = false;
+      simTimeMs = Date.now() + offsetMin * 60000;
+      setPlayState(true);
+      timeOffsetLabel.textContent = `Time offset: ${offsetMin} min (auto-paused while scrubbing)`;
+      const snapNow = new Date(simTimeMs);
+      updateSatPositions(snapNow);
+      updateSelectedInfo();
+      updateLocationLinks();
+      if (orbitVisible && selectedSatellite) {
+        buildOrbitLineForSelected(snapNow);
+      }
+    });
+    speedSlider.addEventListener('input', () => {
+      playbackMinPerSec = Number(speedSlider.value);
+      speedLabel.textContent = formatPlaybackSpeed(playbackMinPerSec);
+    });
+    realtimeSpeedBtn.addEventListener('click', () => {
+      liveMode = false;
+      playbackMinPerSec = 1 / 60;
+      speedSlider.value = playbackMinPerSec.toFixed(7);
+      speedLabel.textContent = formatPlaybackSpeed(playbackMinPerSec);
+      setStatus('Playback speed set to 1.00 s/s (real-time simulation).', 'ok');
+    });
+    leftPanelToggle.addEventListener('click', () => togglePanel(leftPanel, leftPanelToggle));
+    rightPanelToggle.addEventListener('click', () => togglePanel(rightPanel, rightPanelToggle));
+    nearRangeSlider.addEventListener('input', () => {
+      nearRangeDeg = Number(nearRangeSlider.value);
+      nearRangeLabel.textContent = `Nearest-link range: ${nearRangeDeg} deg`;
+      updateLocationLinks();
+    });
+    renderAsCircles.addEventListener('change', () => {
+      renderWhiteCircles = renderAsCircles.checked;
+      buildSatMeshes();
+      setStatus(renderWhiteCircles ? 'Render mode: white circles.' : 'Render mode: satellite models.', 'ok');
+    });
+    renderLimitSlider.addEventListener('input', () => {
+      renderCap = Math.max(100, Number(renderLimitSlider.value));
+      updateRenderLimitLabel();
+      buildSatMeshes();
+    });
+    reloadSourcesBtn.addEventListener('click', async () => {
+      const selectedSources = getSelectedSourceFilters();
+      if (!selectedSources.length) {
+        setStatus('Select at least one source before reloading.', 'error');
+        return;
+      }
+      try {
+        setStatus('Reloading selected sources...');
+        const loadPromise = fetchSatelliteData((msg) => setStatus(msg));
+        allSatellitesRaw = await Promise.race([
+          loadPromise,
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out fetching selected sources.')), 22000);
+          })
+        ]);
+        if (!allSatellitesRaw.length) {
+          satellites = [];
+          buildSatMeshes();
+          setStatus('No satellites returned from providers.', 'error');
+          return;
+        }
+        applySourceFiltersAndRebuild();
+      } catch (err) {
+        setStatus(`Reload error: ${err.message || 'unknown error'}`, 'error');
+      }
+    });
+    [srcSatnogs, srcCelestrakActive, srcCelestrakStarlink, srcCelestrakWeather, srcCelestrakStations, srcCelestrakGeo, srcAmsat]
+      .forEach((el) => el.addEventListener('change', () => {
+        const selectedSources = getSelectedSourceFilters();
+        if (!selectedSources.length) {
+          satellites = [];
+          buildSatMeshes();
+          setStatus('Select at least one source before reloading.', 'error');
+          return;
+        }
+        if (allSatellitesRaw.length) {
+          applySourceFiltersAndRebuild();
+        }
+      }));
+
+    let pointerDown = null;
+    canvas.addEventListener('mousedown', (e) => {
+      pointerDown = { x: e.clientX, y: e.clientY };
+    });
+    canvas.addEventListener('mouseup', (e) => {
+      if (!pointerDown) return;
+      const moved = Math.hypot(e.clientX - pointerDown.x, e.clientY - pointerDown.y);
+      pointerDown = null;
+      if (moved > 5 || e.button !== 0) return;
+
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const detailedHits = raycaster.intersectObjects(satHitMeshes.filter((m) => m.visible), false);
+      if (detailedHits.length > 0) {
+        const mesh = detailedHits[0].object;
+        const sat = mesh.userData.sat;
+        if (!withinClickTolerance(mesh.position, e.clientX, e.clientY, canvas, camera, 12)) {
+          return;
+        }
+        selectSatellite(sat, sat.mesh);
+        if (followedSatellite && followedSatellite !== sat) {
+          stopFollowingSatellite();
+        }
+        if (orbitVisible) {
+          buildOrbitLineForSelected(new Date(simTimeMs));
+        }
+        return;
+      }
+      if (overflowPoints) {
+        const pointHits = raycaster.intersectObject(overflowPoints, false);
+        if (pointHits.length > 0 && pointHits[0].index !== undefined) {
+          const idx = pointHits[0].index;
+          const sat = overflowSatellites[idx];
+          if (sat) {
+            const worldPos = sat.lastGeo ? geodeticToScene(sat.lastGeo.latitude, sat.lastGeo.longitude, sat.lastGeo.height) : null;
+            if (!withinClickTolerance(worldPos, e.clientX, e.clientY, canvas, camera, 12)) {
+              return;
+            }
+            promoteSatelliteToDetailed(sat);
+            selectSatellite(sat, sat.mesh);
+            if (followedSatellite && followedSatellite !== sat) {
+              stopFollowingSatellite();
+            }
+            if (orbitVisible) {
+              buildOrbitLineForSelected(new Date(simTimeMs));
+            }
+          }
+        }
+      }
+    });
+
+    canvas.addEventListener('dblclick', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const detailedHits = raycaster.intersectObjects(satHitMeshes.filter((m) => m.visible), false);
+      let sat = null;
+      if (detailedHits.length > 0) {
+        const hitMesh = detailedHits[0].object;
+        if (withinClickTolerance(hitMesh.position, e.clientX, e.clientY, canvas, camera, 12)) {
+          sat = hitMesh.userData.sat;
+        }
+      } else if (overflowPoints) {
+        const pointHits = raycaster.intersectObject(overflowPoints, false);
+        if (pointHits.length > 0 && pointHits[0].index !== undefined) {
+          const candidate = overflowSatellites[pointHits[0].index] || null;
+          if (candidate) {
+            const worldPos = candidate.lastGeo ? geodeticToScene(candidate.lastGeo.latitude, candidate.lastGeo.longitude, candidate.lastGeo.height) : null;
+            if (withinClickTolerance(worldPos, e.clientX, e.clientY, canvas, camera, 12)) {
+              sat = candidate;
+              promoteSatelliteToDetailed(sat);
+            }
+          }
+        }
+      }
+      if (!sat) {
+        if (followedSatellite) {
+          stopFollowingSatellite();
+        }
+        return;
+      }
+      selectSatellite(sat, sat.mesh);
+      if (followedSatellite === sat) {
+        stopFollowingSatellite();
+      } else {
+        startFollowingSatellite(sat);
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    (async () => {
+      try {
+        const earthTexture = await loadTextureWithFallback([
+          'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/land_ocean_ice_cloud_2048.jpg',
+          'https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg',
+          'https://unpkg.com/three@0.160.0/examples/textures/land_ocean_ice_cloud_2048.jpg'
+        ]);
+        if (earthTexture) {
+          earthTexture.colorSpace = THREE.SRGBColorSpace;
+          earthMaterial.map = earthTexture;
+          earthMaterial.emissive.setHex(0x000000);
+          earthMaterial.needsUpdate = true;
+        }
+
+        const selectedSources = getSelectedSourceFilters();
+        if (!selectedSources.length) {
+          setStatus('Select at least one source to load satellites.', 'error');
+          return;
+        }
+        const loadPromise = fetchSatelliteData((msg) => setStatus(msg));
+        allSatellitesRaw = await Promise.race([
+          loadPromise,
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Timed out fetching live feeds.')), 22000);
+          })
+        ]);
+        if (!allSatellitesRaw.length) {
+          setStatus('Live satellite feeds unavailable. No satellites loaded.', 'error');
+          return;
+        }
+        applySourceFiltersAndRebuild();
+      } catch (err) {
+        setStatus(`Startup error: ${err.message || 'unknown error'}`, 'error');
+      }
+    })();
+
+    let lastOverheadUpdate = 0;
+    let lastFrameMs = performance.now();
+    function animate() {
+      requestAnimationFrame(animate);
+      const frameNow = performance.now();
+      const dtSec = Math.max(0, (frameNow - lastFrameMs) / 1000);
+      lastFrameMs = frameNow;
+      if (liveMode && !simPaused) {
+        simTimeMs = Date.now();
+      } else if (!simPaused) {
+        simTimeMs += dtSec * playbackMinPerSec * 60000;
+      }
+      const now = new Date(simTimeMs);
+      updateSatPositions(now);
+      updateSelectedInfo();
+      updateLocationLinks();
+      simTimeLabel.textContent = `Simulation time: ${now.toUTCString()}${liveMode ? ' (live)' : (simPaused ? ' (paused)' : '')}`;
+      const nowMs = Date.now();
+      if (nowMs - lastOverheadUpdate > 1500) {
+        updateOverheadList(now);
+        lastOverheadUpdate = nowMs;
+      }
+      if (orbitVisible && selectedSatellite && (nowMs - lastOrbitUpdateMs > 2500)) {
+        buildOrbitLineForSelected(now);
+        lastOrbitUpdateMs = nowMs;
+      }
+      if (followedSatellite && followedSatellite.mesh && followedSatellite.mesh.visible) {
+        controls.target.copy(followedSatellite.mesh.position);
+      } else {
+        controls.target.set(0, 0, 0);
+      }
+      controls.update();
+      updateScaleInfo();
+      renderer.render(scene, camera);
+    }
+    setPlayState(true);
+    animate();
+  }
+
+  window.addEventListener('error', (event) => {
+    setStatus(`Script error: ${event.message}`, 'error');
+  });
+
+  boot();
+</script>
+</body>
+</html>

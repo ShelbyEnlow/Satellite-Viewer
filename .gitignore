@@ -1,0 +1,13 @@
+﻿# Python envs
+.venv/
+__pycache__/
+
+# IDE files
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local scratch
+main.py
